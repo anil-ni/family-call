@@ -15,6 +15,17 @@ let localStream;
 let isOfferer = false;
 let ended = false;
 
+function isNativeApp() {
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
+
+function getServerOrigin() {
+  if (isNativeApp() && window.FAMILY_CALL_SERVER) {
+    return window.FAMILY_CALL_SERVER;
+  }
+  return location.origin;
+}
+
 function setStatus(text) {
   statusText.textContent = text;
 }
@@ -42,8 +53,9 @@ async function start() {
 }
 
 function connectSignaling() {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}`);
+  const origin = getServerOrigin();
+  const wsUrl = origin.replace(/^http/, 'ws');
+  ws = new WebSocket(wsUrl);
 
   ws.onopen = () => setStatus('Waiting for your family member to join…');
 
