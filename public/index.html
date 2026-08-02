@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Family Call</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="status-screen" class="screen">
+    <h1>Family Call</h1>
+    <p id="status-text">Connecting…</p>
+  </div>
+
+  <div id="call-screen" class="screen hidden">
+    <div class="video-grid">
+      <video id="remote-video" autoplay playsinline></video>
+      <video id="local-video" autoplay playsinline muted></video>
+    </div>
+    <div class="controls">
+      <button id="mic-btn" class="control-btn" title="Toggle microphone">🎤</button>
+      <button id="cam-btn" class="control-btn" title="Toggle camera">📷</button>
+      <button id="hangup-btn" class="control-btn hangup" title="Hang up">⏹</button>
+    </div>
+  </div>
+
+  <script src="client.js"></script>
+</body>
+</html>
