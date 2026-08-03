@@ -1,6 +1,7 @@
 node_modules/
 server.log
 .claude/
+data.json
 android/app/build/
 android/build/
 android/.gradle/

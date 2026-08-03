@@ -13,24 +13,128 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="status-screen" class="screen">
-    <h1>Family Call</h1>
-    <p id="status-text">Connecting…</p>
-  </div>
 
-  <div id="call-screen" class="screen hidden">
+  <!-- ---------------------------------------------------- first-run setup -->
+  <section id="setup-screen" class="screen">
+    <div class="panel">
+      <h1>Family Call</h1>
+      <p class="muted">Sign in to reach your family.</p>
+      <label for="setup-name">Your name</label>
+      <input id="setup-name" type="text" placeholder="e.g. Anil" autocomplete="name" />
+      <label for="setup-code">Family passcode</label>
+      <input id="setup-code" type="password" placeholder="Shared family passcode" />
+      <p id="setup-error" class="error"></p>
+      <button id="setup-btn" class="primary-btn">Continue</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------ contact list -->
+  <section id="contacts-screen" class="screen hidden">
+    <header class="topbar">
+      <div>
+        <h2 id="me-name">Family</h2>
+        <span id="connection-state" class="muted small">Connecting…</span>
+      </div>
+      <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
+    </header>
+    <ul id="contact-list" class="contact-list"></ul>
+    <p id="contacts-empty" class="empty-note hidden">
+      Nobody else has joined yet. Share the app and the family passcode with
+      them, and they'll appear here.
+    </p>
+  </section>
+
+  <!-- ------------------------------------------------------------- chat -->
+  <section id="chat-screen" class="screen hidden">
+    <header class="topbar">
+      <button id="chat-back" class="icon-btn" title="Back">‹</button>
+      <div class="grow">
+        <h2 id="chat-title">&nbsp;</h2>
+        <span id="chat-presence" class="muted small"></span>
+      </div>
+      <button id="chat-call-btn" class="icon-btn" title="Video call">📹</button>
+    </header>
+    <div id="message-list" class="message-list"></div>
+    <form id="chat-form" class="chat-form">
+      <input id="chat-input" type="text" placeholder="Message…" autocomplete="off" />
+      <button type="submit" class="send-btn" title="Send">➤</button>
+    </form>
+  </section>
+
+  <!-- --------------------------------------------------- outgoing call -->
+  <section id="calling-screen" class="screen hidden">
+    <div class="panel center">
+      <div class="big-avatar" id="calling-avatar"></div>
+      <h2 id="calling-name"></h2>
+      <p id="calling-status" class="muted">Calling…</p>
+      <button id="cancel-call-btn" class="round-btn hangup">✕</button>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------- incoming call -->
+  <section id="incoming-screen" class="screen hidden">
+    <div class="panel center">
+      <div class="big-avatar pulse" id="incoming-avatar"></div>
+      <h2 id="incoming-name"></h2>
+      <p class="muted">Incoming video call…</p>
+      <div class="ring-actions">
+        <button id="decline-btn" class="round-btn hangup" title="Decline">✕</button>
+        <button id="accept-btn" class="round-btn accept" title="Accept">✓</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------- in a call -->
+  <section id="call-screen" class="screen hidden">
     <div class="video-grid">
       <video id="remote-video" autoplay playsinline></video>
       <video id="local-video" autoplay playsinline muted></video>
+      <div id="call-banner" class="call-banner">Connecting…</div>
     </div>
     <div class="controls">
-      <button id="mic-btn" class="control-btn" title="Toggle microphone">🎤</button>
-      <button id="cam-btn" class="control-btn" title="Toggle camera">📷</button>
-      <button id="hangup-btn" class="control-btn hangup" title="Hang up">⏹</button>
+      <button id="mic-btn" class="round-btn" title="Toggle microphone">🎤</button>
+      <button id="cam-btn" class="round-btn" title="Toggle camera">📷</button>
+      <button id="hangup-btn" class="round-btn hangup" title="Hang up">✕</button>
     </div>
-  </div>
+  </section>
+
+  <!-- --------------------------------------------------------- settings -->
+  <section id="settings-screen" class="screen hidden">
+    <header class="topbar">
+      <button id="settings-back" class="icon-btn" title="Back">‹</button>
+      <div class="grow"><h2>Settings</h2></div>
+    </header>
+    <div class="panel">
+      <label for="settings-name">Your name</label>
+      <input id="settings-name" type="text" />
+      <button id="save-name-btn" class="primary-btn">Save name</button>
+
+      <h3>Add someone to the family</h3>
+      <p class="muted small">
+        Install the app on their phone (or open this link in their browser) and
+        give them the family passcode. Once they sign in, they show up in
+        everyone's list automatically.
+      </p>
+      <div class="share-row">
+        <input id="share-url" type="text" readonly />
+        <button id="copy-url-btn" class="secondary-btn">Copy</button>
+      </div>
+
+      <h3>Notifications</h3>
+      <button id="enable-notifs-btn" class="secondary-btn">
+        Enable notifications
+      </button>
+      <p id="notif-state" class="muted small"></p>
+
+      <h3 class="danger-heading">Sign out</h3>
+      <button id="sign-out-btn" class="secondary-btn danger">
+        Sign out of this device
+      </button>
+    </div>
+  </section>
 
   <script src="config.js"></script>
-  <script src="client.js"></script>
+  <script src="call.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
