@@ -7,3 +7,8 @@ android/build/
 android/.gradle/
 *.apk
 *.keystore
+
+# Firebase config: only needed on the machine that builds the APK, and tied to
+# your own Firebase project. The server uses FIREBASE_SERVICE_ACCOUNT instead.
+android/app/google-services.json
+serviceAccount*.json

@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
+const push = require('./push');
 
 const PORT = process.env.PORT || 3000;
 // Set this in the hosting dashboard, never in the repo — the repo is public.
@@ -20,7 +21,7 @@ if (!FAMILY_CODE) {
 
 // ---------------------------------------------------------------- storage --
 
-let data = { users: {}, messages: [] };
+let data = { users: {}, messages: [], push: {} };
 
 function loadData() {
   try {
@@ -28,6 +29,7 @@ function loadData() {
       const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
       data.users = raw.users || {};
       data.messages = Array.isArray(raw.messages) ? raw.messages : [];
+      data.push = raw.push || {};
     }
   } catch (err) {
     console.error('Could not read data file, starting fresh:', err.message);
@@ -100,6 +102,60 @@ function historyFor(userId) {
   return data.messages.filter((m) => m.from === userId || m.to === userId);
 }
 
+// ------------------------------------------------------------ push subs --
+
+function subsFor(userId) {
+  if (!data.push[userId]) data.push[userId] = { web: [], fcm: [] };
+  const subs = data.push[userId];
+  if (!Array.isArray(subs.web)) subs.web = [];
+  if (!Array.isArray(subs.fcm)) subs.fcm = [];
+  return subs;
+}
+
+function addSubscription(userId, msg) {
+  const subs = subsFor(userId);
+
+  if (msg.kind === 'web' && msg.subscription && msg.subscription.endpoint) {
+    const already = subs.web.some((s) => s.endpoint === msg.subscription.endpoint);
+    if (!already) subs.web.push(msg.subscription);
+  } else if (msg.kind === 'fcm' && typeof msg.token === 'string' && msg.token) {
+    if (!subs.fcm.includes(msg.token)) subs.fcm.push(msg.token);
+  } else {
+    return;
+  }
+  saveData();
+}
+
+function removeSubscription(userId, msg) {
+  const subs = subsFor(userId);
+  if (msg.kind === 'web' && msg.endpoint) {
+    subs.web = subs.web.filter((s) => s.endpoint !== msg.endpoint);
+  } else if (msg.kind === 'fcm' && msg.token) {
+    subs.fcm = subs.fcm.filter((t) => t !== msg.token);
+  }
+  saveData();
+}
+
+function pruneSubscriptions(userId, dead) {
+  const subs = subsFor(userId);
+  if (dead.web.length) {
+    subs.web = subs.web.filter((s) => !dead.web.includes(s.endpoint));
+  }
+  if (dead.fcm.length) {
+    subs.fcm = subs.fcm.filter((t) => !dead.fcm.includes(t));
+  }
+  saveData();
+}
+
+function pushToUser(userId, payload) {
+  if (!push.isConfigured()) return;
+  const subs = subsFor(userId);
+  if (!subs.web.length && !subs.fcm.length) return;
+  push
+    .sendToSubscriptions(subs, payload, (dead) => pruneSubscriptions(userId, dead))
+    .catch((err) => console.warn('Push send failed:', err.message));
+}
+
 // Drop the other side of a call, whatever state it was in.
 function clearCall(userId, reason) {
   const peerId = inCall.get(userId);
@@ -113,6 +169,7 @@ function clearCall(userId, reason) {
   for (const [callee, caller] of ringing) {
     if (callee === userId || caller === userId) {
       ringing.delete(callee);
+      clearRingTimeout(callee);
       const other = callee === userId ? caller : callee;
       sendTo(other, { type: 'call-ended', from: userId, reason });
     }
@@ -121,8 +178,11 @@ function clearCall(userId, reason) {
 
 // ------------------------------------------------------------- websocket --
 
+push.init();
+
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/push-config', (_req, res) => res.json(push.publicConfig()));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -159,6 +219,10 @@ wss.on('connection', (ws) => {
         return clearCall(ws.userId, msg.type);
       case 'signal':
         return handleSignal(ws, msg);
+      case 'push-subscribe':
+        return addSubscription(ws.userId, msg);
+      case 'push-unsubscribe':
+        return removeSubscription(ws.userId, msg);
     }
   });
 
@@ -226,8 +290,20 @@ function handleAuth(ws, msg) {
     type: 'auth-ok',
     you: data.users[userId],
     users: roster(),
-    messages: historyFor(userId)
+    messages: historyFor(userId),
+    pushConfig: push.publicConfig()
   });
+
+  // Woken by a call notification: the call is still waiting, so ring now.
+  const pendingCaller = ringing.get(userId);
+  if (pendingCaller && data.users[pendingCaller]) {
+    sendWs(ws, {
+      type: 'incoming-call',
+      from: pendingCaller,
+      name: data.users[pendingCaller].name
+    });
+  }
+
   broadcastRoster();
 }
 
@@ -260,6 +336,17 @@ function handleMessage(ws, msg) {
 
   sendTo(msg.to, { type: 'message', message });
   sendTo(ws.userId, { type: 'message', message }); // echo to all my devices
+
+  // Their app is shut — reach them through the phone's notification system.
+  if (!isOnline(msg.to)) {
+    pushToUser(msg.to, {
+      type: 'message',
+      title: data.users[ws.userId].name,
+      body: text.length > 120 ? text.slice(0, 117) + '…' : text,
+      fromId: ws.userId,
+      fromName: data.users[ws.userId].name
+    });
+  }
 }
 
 function handleMarkRead(ws, msg) {
@@ -280,28 +367,83 @@ function handleCallInvite(ws, msg) {
   const target = msg.to;
   if (!data.users[target] || target === ws.userId) return;
 
-  if (!isOnline(target)) {
-    return sendWs(ws, { type: 'call-unavailable', target });
-  }
   if (inCall.has(target) || ringing.has(target)) {
     return sendWs(ws, { type: 'call-busy', target });
   }
   if (inCall.has(ws.userId)) return;
 
+  const online = isOnline(target);
+  const hasPush = subsFor(target).web.length > 0 || subsFor(target).fcm.length > 0;
+
+  // With no live app and no way to wake the phone, there is nothing to ring.
+  if (!online && !(hasPush && push.isConfigured())) {
+    return sendWs(ws, { type: 'call-unavailable', target });
+  }
+
   ringing.set(target, ws.userId);
-  sendTo(target, {
-    type: 'incoming-call',
-    from: ws.userId,
-    name: data.users[ws.userId].name
+  scheduleRingTimeout(target);
+
+  if (online) {
+    sendTo(target, {
+      type: 'incoming-call',
+      from: ws.userId,
+      name: data.users[ws.userId].name
+    });
+  }
+
+  // Always push for calls: the app may be holding a stale socket while it is
+  // actually backgrounded, in which case the in-app ring is never seen.
+  pushToUser(target, {
+    type: 'call',
+    title: 'Incoming call',
+    body: `${data.users[ws.userId].name} is calling you`,
+    fromId: ws.userId,
+    fromName: data.users[ws.userId].name
   });
+
   sendWs(ws, { type: 'call-ringing', target });
+}
+
+// Stop a call ringing forever when nobody picks up.
+const RING_TIMEOUT_MS = 45000;
+const ringTimers = new Map();
+
+function scheduleRingTimeout(calleeId) {
+  clearRingTimeout(calleeId);
+  ringTimers.set(
+    calleeId,
+    setTimeout(() => {
+      const callerId = ringing.get(calleeId);
+      if (!callerId) return;
+      ringing.delete(calleeId);
+      ringTimers.delete(calleeId);
+      sendTo(callerId, { type: 'call-ended', from: calleeId, reason: 'no-answer' });
+      sendTo(calleeId, { type: 'call-ended', from: callerId, reason: 'no-answer' });
+    }, RING_TIMEOUT_MS)
+  );
+}
+
+function clearRingTimeout(calleeId) {
+  const timer = ringTimers.get(calleeId);
+  if (timer) {
+    clearTimeout(timer);
+    ringTimers.delete(calleeId);
+  }
 }
 
 function handleCallAccept(ws, msg) {
   const callerId = ringing.get(ws.userId);
   if (!callerId || callerId !== msg.to) return;
 
+  // The caller may have hung up while the callee's phone was waking up.
+  if (!isOnline(callerId)) {
+    ringing.delete(ws.userId);
+    clearRingTimeout(ws.userId);
+    return sendWs(ws, { type: 'call-ended', from: callerId, reason: 'caller-gone' });
+  }
+
   ringing.delete(ws.userId);
+  clearRingTimeout(ws.userId);
   inCall.set(ws.userId, callerId);
   inCall.set(callerId, ws.userId);
 
@@ -313,6 +455,7 @@ function handleCallDecline(ws, msg) {
   const callerId = ringing.get(ws.userId);
   if (!callerId) return;
   ringing.delete(ws.userId);
+  clearRingTimeout(ws.userId);
   sendTo(callerId, { type: 'call-declined', from: ws.userId });
 }
 

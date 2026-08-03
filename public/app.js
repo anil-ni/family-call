@@ -203,12 +203,19 @@ function handleServerMessage(msg) {
       state.users = msg.users;
       state.messages = msg.messages;
       state.reconnectDelay = 1000;
+      FamilyCallPush.setPushConfig(msg.pushConfig);
+      FamilyCallPush.refresh();
       saveIdentity({ userId: msg.you.id, name: msg.you.name, code: state.code });
       $('me-name').textContent = msg.you.name;
       $('connection-state').textContent = 'Connected';
       $('setup-btn').disabled = false;
       renderContacts();
       showScreen('contacts-screen');
+      if (pendingFocusId) {
+        const target = pendingFocusId;
+        pendingFocusId = null;
+        focusFrom(target);
+      }
       break;
     }
 
@@ -555,29 +562,83 @@ $('copy-url-btn').addEventListener('click', async () => {
   }
 });
 
-function updateNotifState() {
-  if (!('Notification' in window)) {
-    $('notif-state').textContent = 'This device does not support notifications.';
+function updateNotifState(message) {
+  if (message) {
+    $('notif-state').textContent = message;
+    return;
+  }
+  if (!FamilyCallPush.supported()) {
+    $('notif-state').textContent =
+      'This browser cannot show notifications while the app is closed. ' +
+      'On iPhone, add the app to your home screen first.';
     $('enable-notifs-btn').disabled = true;
     return;
   }
-  const perm = Notification.permission;
-  $('notif-state').textContent =
-    perm === 'granted' ? 'Notifications are on.' :
-    perm === 'denied' ? 'Blocked — enable them in your device settings.' :
-    'Turn these on to be alerted about calls and messages.';
-  $('enable-notifs-btn').disabled = perm !== 'default';
+  const perm = ('Notification' in window) ? Notification.permission : 'default';
+  if (perm === 'granted') {
+    $('notif-state').textContent =
+      'Notifications are on — you will be alerted even when the app is closed.';
+    $('enable-notifs-btn').textContent = 'Re-register this device';
+    $('enable-notifs-btn').disabled = false;
+  } else if (perm === 'denied') {
+    $('notif-state').textContent =
+      'Blocked. Turn notifications back on for this app in your phone settings.';
+    $('enable-notifs-btn').disabled = true;
+  } else {
+    $('notif-state').textContent =
+      'Turn these on so calls and messages reach you when the app is closed.';
+    $('enable-notifs-btn').disabled = false;
+  }
 }
 
 $('enable-notifs-btn').addEventListener('click', async () => {
-  await Notification.requestPermission();
-  updateNotifState();
+  $('enable-notifs-btn').disabled = true;
+  updateNotifState('Setting up…');
+  const result = await FamilyCallPush.enable();
+  updateNotifState(
+    result.ok
+      ? 'Notifications are on — you will be alerted even when the app is closed.'
+      : 'Could not turn on notifications: ' + result.reason
+  );
+  $('enable-notifs-btn').disabled = false;
 });
 
 $('sign-out-btn').addEventListener('click', () => {
   localStorage.removeItem(STORE_KEY);
   location.reload();
 });
+
+// ---------------------------------------------------- notification taps --
+
+FamilyCallPush.configure({ send });
+
+// Set when the app is launched cold from a notification, and consumed once
+// sign-in finishes and the contact list actually exists.
+let pendingFocusId = new URLSearchParams(location.search).get('from');
+
+// Tapping a notification should land on the conversation it was about. An
+// incoming call needs no help: the ring screen appears once we reconnect.
+function focusFrom(fromId) {
+  if (!fromId || !state.me) return;
+  if (state.incomingFrom || state.activePeer) return;
+  if (userById(fromId)) openChat(fromId);
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const msg = event.data || {};
+    if (msg.type === 'notification-click') focusFrom(msg.data && msg.data.fromId);
+  });
+}
+
+if (FamilyCallPush.isNative() && window.Capacitor.Plugins.PushNotifications) {
+  const Push = window.Capacitor.Plugins.PushNotifications;
+  Push.addListener('pushNotificationActionPerformed', (action) => {
+    const data = (action.notification && action.notification.data) || {};
+    pendingFocusId = data.fromId || null;
+    focusFrom(pendingFocusId);
+  });
+}
 
 // --------------------------------------------------------------- start --
 

@@ -10,7 +10,10 @@
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@capacitor/push-notifications": "^8.1.2",
     "express": "^4.19.2",
+    "firebase-admin": "^14.2.0",
+    "web-push": "^3.6.7",
     "ws": "^8.18.0"
   },
   "devDependencies": {
