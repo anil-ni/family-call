@@ -3,11 +3,16 @@
    carries the offer/answer/ICE handshake. */
 
 (function (global) {
-  const ICE_SERVERS = [
+  // STUN alone only helps both sides discover their public address. When a
+  // network refuses direct peer traffic — many workplaces, and mobile carriers
+  // that put customers behind shared NAT — the call needs a TURN relay to pass
+  // through instead. The server tells us which ones to use.
+  const FALLBACK_ICE = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
   ];
 
+  let iceServers = FALLBACK_ICE;
   let pc = null;
   let localStream = null;
   let peerId = null;
@@ -16,6 +21,17 @@
 
   function configure(opts) {
     handlers = opts;
+  }
+
+  function setIceServers(servers) {
+    iceServers = Array.isArray(servers) && servers.length ? servers : FALLBACK_ICE;
+  }
+
+  function hasRelay() {
+    return iceServers.some((s) => {
+      const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+      return urls.some((u) => typeof u === 'string' && u.startsWith('turn'));
+    });
   }
 
   async function getLocalStream() {
@@ -34,7 +50,10 @@
     const stream = await getLocalStream();
     if (handlers.onLocalStream) handlers.onLocalStream(stream);
 
-    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    pc = new RTCPeerConnection({
+      iceServers,
+      iceCandidatePoolSize: 4
+    });
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
     pc.onicecandidate = (event) => {
@@ -117,6 +136,8 @@
 
   global.FamilyCallRTC = {
     configure,
+    setIceServers,
+    hasRelay,
     setup,
     handleSignal,
     toggleAudio,

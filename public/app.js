@@ -205,6 +205,7 @@ function handleServerMessage(msg) {
       state.reconnectDelay = 1000;
       FamilyCallPush.setPushConfig(msg.pushConfig);
       FamilyCallPush.refresh();
+      FamilyCallRTC.setIceServers(msg.iceServers);
       saveIdentity({ userId: msg.you.id, name: msg.you.name, code: state.code });
       $('me-name').textContent = msg.you.name;
       $('connection-state').textContent = 'Connected';
@@ -515,7 +516,14 @@ FamilyCallRTC.configure({
     if (connState === 'connected') {
       $('call-banner').classList.add('hidden');
     } else if (connState === 'failed') {
-      endCall('Connection failed — try again');
+      // Without a relay this is the expected outcome on networks that block
+      // direct peer traffic, so say something more useful than "failed".
+      endCall(
+        FamilyCallRTC.hasRelay()
+          ? 'Could not connect — check your internet and try again'
+          : 'Could not connect. This network blocks direct calls, and no ' +
+            'relay server is set up yet.'
+      );
     }
   }
 });

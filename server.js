@@ -5,6 +5,7 @@ const fs = require('fs');
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
 const push = require('./push');
+const ice = require('./ice');
 
 const PORT = process.env.PORT || 3000;
 // Set this in the hosting dashboard, never in the repo — the repo is public.
@@ -179,6 +180,7 @@ function clearCall(userId, reason) {
 // ------------------------------------------------------------- websocket --
 
 push.init();
+console.log(ice.describe());
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -291,7 +293,8 @@ function handleAuth(ws, msg) {
     you: data.users[userId],
     users: roster(),
     messages: historyFor(userId),
-    pushConfig: push.publicConfig()
+    pushConfig: push.publicConfig(),
+    iceServers: ice.iceServers()
   });
 
   // Woken by a call notification: the call is still waiting, so ring now.
